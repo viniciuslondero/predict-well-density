@@ -5,7 +5,7 @@ predict_rhob.py  -  SCRIPT 2 of 2: apply the saved DEN model to new wells
 Uses the model created by train_rhob_model.py.
 
 For each new well:
-  * same preparation as training (0.1524 m, Salt interval, lithology mapping)
+  * same preparation as training (0.1524 m, salt interval, lithology mapping)
   * keeps rows that have lithology, VP and GR (DEN is optional)
   * predicts DEN with XGBoost (+ Gardner as a reference curve)
   * flags samples outside the training range or with an unseen lithology
@@ -25,7 +25,8 @@ Run in Spyder with F5 or cell by cell. Needs rhob_common.py in the same folder.
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent if '__file__' in globals() else Path.cwd()   # project folder (edit if needed)
-NEW_LAS_DIR = BASE_DIR / "new_wells"           # .las files of the wells to predict
+NEW_LAS_DIR = BASE_DIR / "sample_data" / "predict"   # .las files of the wells to predict
+# NEW_LAS_DIR = BASE_DIR / "new_wells"             # your own wells - uncomment and edit
 MODEL_DIR = BASE_DIR / "model_output" / "model"    # created by train_rhob_model.py
 OUT_DIR = BASE_DIR / "predictions"
 CODE_DIR = None   # folder with rhob_common.py; None = same folder as this script
@@ -35,6 +36,9 @@ PREDICT_WELLS = None   # None = every .las in NEW_LAS_DIR, or a list of well nam
 # Salt top/base (MD, m) per well - fill in later (None = not cut)
 SALT_MARKERS = {
     # 'WELL-NAME': {'top': None, 'base': None},
+    'SYN-PRED-1': {'top': 3050, 'base': 3450},     # synthetic sample wells (sample_data/)
+    'SYN-PRED-2': {'top': 2900, 'base': 3330},
+    'SYN-PRED-3': {'top': 3200, 'base': 3570},
 }
 
 # Model used to fill the gaps in DEN_MERGED (measured DEN where it exists):
@@ -57,6 +61,7 @@ PLOT_EXPLORATION = True       # scatter matrices, histograms, VP x DEN, box plot
 PAIRPLOT_MAX_PER_LITHO = 3000  # points per lithology / well in the scatter plots (speed)
 POINT_SIZE = 12
 TOP_LITHO = 'HALITE'          # lithology drawn on top in scatter plots (None = random order)
+
 
 
 # %% ===========================================================================
@@ -140,7 +145,7 @@ for f in files:
         continue
     if d.empty:
         skipped[os.path.basename(f)] = ("no rows with LITO + VP + GR (check curve names in "
-                                        "rhob_common.CURVES, the Salt markers and the units)")
+                                        "rhob_common.CURVES, the salt markers and the units)")
         print(f"  !! SKIPPED: {skipped[os.path.basename(f)]}")
         continue
     if info['WELL'] in meta['training_wells']:

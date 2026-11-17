@@ -74,3 +74,28 @@ Both scripts can also be run cell by cell in Spyder or VS Code (cells are marked
 
 Input LAS files and generated outputs are not versioned. The folders holding them are listed in
 `.gitignore`, so the data stays local.
+
+## Quick test with synthetic data
+
+`sample_data/` holds synthetic evaporite wells made by `make_sample_data.py`. They are not real
+data and must not be used for interpretation:
+
+| Folder | Wells | Purpose |
+|--------|-------|---------|
+| `sample_data/train/` | `SYN-TRAIN-1` to `5` | GR, sonic (DT or VP), shear (DTS or VS), RHOB and LITO code; different sampling steps and mnemonics |
+| `sample_data/predict/` | `SYN-PRED-1` | all logs (full blind test) |
+| | `SYN-PRED-2` | RHOB only in the upper part, VS missing in the lower part |
+| | `SYN-PRED-3` | no RHOB and no shear log (pure prediction, VS from VP) |
+
+`sample_data/sample_config.json` lists the wells and their interval tops and bases.
+
+The `CONFIG` block of both scripts points to these wells by default (`TRAIN_LAS_DIR`, `NEW_LAS_DIR`,
+`TRAIN_WELLS`, `SALT_MARKERS`), so after cloning, run the two scripts as they are:
+
+```bash
+python train_rhob_model.py
+python predict_rhob.py
+```
+
+Results go to `model_output/` and `predictions/`. To use your own wells, change the input folder, well
+names and markers in `CONFIG`. To rebuild the synthetic wells, run `python make_sample_data.py`.

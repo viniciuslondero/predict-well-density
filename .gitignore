@@ -1,4 +1,3 @@
-new_wells
-train_wells
-predictions
-model_output
+# Every top-level folder is local (input data, outputs, caches) except the sample wells
+/*/
+!/sample_data/

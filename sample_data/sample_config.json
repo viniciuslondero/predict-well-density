@@ -1,0 +1,48 @@
+{
+  "train_wells": [
+    "SYN-TRAIN-1",
+    "SYN-TRAIN-2",
+    "SYN-TRAIN-3",
+    "SYN-TRAIN-4",
+    "SYN-TRAIN-5"
+  ],
+  "predict_wells": [
+    "SYN-PRED-1",
+    "SYN-PRED-2",
+    "SYN-PRED-3"
+  ],
+  "salt_markers": {
+    "SYN-TRAIN-1": {
+      "top": 2950.0,
+      "base": 3370.0
+    },
+    "SYN-TRAIN-2": {
+      "top": 3100.0,
+      "base": 3480.0
+    },
+    "SYN-TRAIN-3": {
+      "top": 2800.0,
+      "base": 3250.0
+    },
+    "SYN-TRAIN-4": {
+      "top": 3300.0,
+      "base": 3660.0
+    },
+    "SYN-TRAIN-5": {
+      "top": 3000.0,
+      "base": 3400.0
+    },
+    "SYN-PRED-1": {
+      "top": 3050.0,
+      "base": 3450.0
+    },
+    "SYN-PRED-2": {
+      "top": 2900.0,
+      "base": 3330.0
+    },
+    "SYN-PRED-3": {
+      "top": 3200.0,
+      "base": 3570.0
+    }
+  }
+}

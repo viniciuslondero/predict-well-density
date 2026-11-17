@@ -5,7 +5,7 @@ train_rhob_model.py  -  SCRIPT 1 of 2: build the DEN (RHOB) model
 Salt section (evaporites).  Features: GR + VP + lithology  ->  target: DEN
 
 Steps
-  1. Load the training wells, resample to 0.1524 m, keep only the Salt interval
+  1. Load the training wells, resample to 0.1524 m, keep only the salt interval
      and only rows that have lithology, DEN, VP and GR.
   2. Statistics table per well (GR, VP, DEN).
   3. Scatter-plot matrix GR x VP x DEN coloured by lithology.
@@ -25,22 +25,31 @@ same folder.  Dependencies (Anaconda Prompt):
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent if '__file__' in globals() else Path.cwd()   # project folder (edit if needed)
-TRAIN_LAS_DIR = BASE_DIR / "train_wells"     # folder with the training .las files
+TRAIN_LAS_DIR = BASE_DIR / "sample_data" / "train"   # folder with the training .las files
 OUT_DIR = BASE_DIR / "model_output"          # everything produced by this script
 CODE_DIR = None   # folder with rhob_common.py; None = same folder as this script
 
-TRAIN_WELLS = ['WELL-1', 'WELL-2', 'WELL-3',
-               'WELL-4', 'WELL-5']
+# Synthetic sample wells (sample_data/, made by make_sample_data.py - not real data)
+TRAIN_WELLS = ['SYN-TRAIN-1', 'SYN-TRAIN-2', 'SYN-TRAIN-3', 'SYN-TRAIN-4', 'SYN-TRAIN-5']
 
 # Salt top and base (MD, m) for each well.
 # A value set to None means that side is not cut (a warning is printed).
 SALT_MARKERS = {
-    'WELL-1': {'top': 3444, 'base': 5487},
-    'WELL-2':  {'top': 2818, 'base': 4836},
-    'WELL-3':  {'top': 3228, 'base': 4961},
-    'WELL-4':  {'top': 3198, 'base': 4805},
-    'WELL-5':  {'top': 3118, 'base': 4788},
+    'SYN-TRAIN-1': {'top': 2950, 'base': 3370},
+    'SYN-TRAIN-2': {'top': 3100, 'base': 3480},
+    'SYN-TRAIN-3': {'top': 2800, 'base': 3250},
+    'SYN-TRAIN-4': {'top': 3300, 'base': 3660},
+    'SYN-TRAIN-5': {'top': 3000, 'base': 3400},
 }
+
+# Your own wells - uncomment and edit to use them instead of the sample wells
+# TRAIN_LAS_DIR = BASE_DIR / "train_wells"
+# TRAIN_WELLS = ['WELL-A', 'WELL-B', 'WELL-C']
+# SALT_MARKERS = {
+#     'WELL-A': {'top': 3000, 'base': 5000},
+#     'WELL-B': {'top': None, 'base': None},   # None = not cut
+#     'WELL-C': {'top': 3200, 'base': 4900},
+# }
 
 # Lithology source. True: if a LAS has an upscaled lithology text column
 # (LITOUPSC, e.g. exported from Colab with your flag-based reclassification),
@@ -85,6 +94,7 @@ PAIRPLOT_MAX_PER_LITHO = 3000  # points per lithology in the scatter matrix (spe
 POINT_SIZE = 12               # marker size in the lithology scatter plots
 TOP_LITHO = 'HALITE'          # lithology drawn on top of the others (None = random order)
 LITO_ALPHA = 0.25             # transparency of the lithology shading behind the depth tracks
+
 
 
 # %% ===========================================================================
@@ -138,7 +148,7 @@ def fin(fig, name):
 
 
 # %% ===========================================================================
-# STEP 1 - Load, resample to 0.1524 m, Salt cut, complete rows only
+# STEP 1 - Load, resample to 0.1524 m, salt cut, complete rows only
 # ==============================================================================
 if not TRAIN_LAS_DIR.exists():
     raise FileNotFoundError(f"'{TRAIN_LAS_DIR}' not found - edit BASE_DIR / TRAIN_LAS_DIR.")
@@ -159,7 +169,7 @@ for f in files:
         print(f"  note: {info['read_note']}")
     if d.empty:
         warnings.warn(f"{info['WELL']}: no rows with LITO + DEN + VP + GR - check curve names, "
-                      "Salt markers and units. This well adds nothing to training.")
+                      "salt markers and units. This well adds nothing to training.")
     frames.append(d)
     report.append(info)
 

@@ -620,7 +620,7 @@ def normalize_gr(df, ref=None, min_dist=1.0, min_samples=50):
 def prepare_well(path, markers, required, step=STEP, valid_ranges=None, use_file_lithology=True,
                  return_all=False):
     """
-    Full preparation of one well: load -> resample 0.1524 m -> Salt cut ->
+    Full preparation of one well: load -> resample 0.1524 m -> salt cut ->
     lithology mapping -> distance to lithology boundary -> (optional) valid-range
     filter -> keep rows where all `required` columns exist.
     `markers` = {'WELL': {'top': .., 'base': ..}}
