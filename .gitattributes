@@ -1,0 +1,2 @@
+# Well-log LAS files are data, not Lasso code: keep them out of the GitHub language stats
+*.las linguist-detectable=false
