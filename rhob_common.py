@@ -36,6 +36,8 @@ FT2M = 0.3048
 CURVES = {
     'DT':   ['DTP', 'DT', 'DTCO', 'DTC', 'DT4P', 'SONIC', 'AC'],
     'VP':   ['VP', 'VELP', 'PVEL'],                     # used only if no DT exists
+    'DTS':  ['DTS', 'DTSM', 'DTSH', 'DT2', 'DTS1', 'DTSHEAR'],
+    'VS':   ['VS', 'VELS', 'SVEL'],                     # used only if no DTS exists
     'DEN':  ['RHOB', 'DEN', 'DENS', 'RHOZ', 'RHO8', 'ZDEN'],
     'GR':   ['GR', 'ECGR', 'SGR', 'CGR', 'GRC', 'HSGR'],
     'LITO': ['LITHOLOGYRESAMPLE', 'LITHOLOGY', 'LITO', 'LITH', 'LITOLOGIA'],
@@ -102,9 +104,9 @@ MINERAL_REF = {   # name: (DT us/ft, RHOB g/cc)
     'Carnallite': (83.0, 1.57), 'Calcite': (47.6, 2.71), 'Dolomite': (43.5, 2.88),
 }
 
-LOG_UNITS = {'GR': 'API', 'VP': 'm/s', 'DEN': 'g/cc'}
-LOG_RANGES = {'GR': (0, 200), 'VP': (2000, 7000), 'DEN': (1.4, 3.1)}
-LOG_COLORS = {'GR': 'green', 'VP': 'blue', 'DEN': 'black'}
+LOG_UNITS = {'GR': 'API', 'VP': 'm/s', 'VS': 'm/s', 'DEN': 'g/cc'}
+LOG_RANGES = {'GR': (0, 200), 'VP': (2000, 7000), 'VS': (1000, 4000), 'DEN': (1.4, 3.1)}
+LOG_COLORS = {'GR': 'green', 'VP': 'blue', 'VS': 'purple', 'DEN': 'black'}
 
 
 # ==============================================================================
@@ -384,6 +386,23 @@ def load_las_well(path, well_name=None):
     vp = np.where(np.isfinite(vp) & (vp > 0), vp, np.nan)
     out['VP'] = vp
 
+    # ---- VS from DTS (preferred) or from a shear velocity curve (optional)
+    dts, dts_name = find_curve(raw, CURVES['DTS'])
+    if dts_name:
+        u = _unit(las, dts_name)
+        k = 1e6 if ('/M' in u and '/F' not in u) else 304800.0   # us/m or us/ft
+        with np.errstate(divide='ignore', invalid='ignore'):
+            vs = k / dts.to_numpy()
+        info.update({'VS source': dts_name, 'VS src unit': u or '?'})
+    else:
+        v, v_name = find_curve(raw, CURVES['VS'])
+        vs = v.to_numpy()
+        if v_name and np.isfinite(vs).any() and np.nanmedian(vs) < 20:      # km/s -> m/s
+            vs = vs * 1000
+        info.update({'VS source': v_name, 'VS src unit': _unit(las, v_name) or '?'})
+    vs = np.where(np.isfinite(vs) & (vs > 0), vs, np.nan)
+    out['VS'] = vs
+
     # ---- DEN
     den, den_name = find_curve(raw, CURVES['DEN'])
     den = den.to_numpy()
@@ -428,7 +447,7 @@ def load_las_well(path, well_name=None):
 # ==============================================================================
 # 2. Resampling to 0.1524 m
 # ==============================================================================
-def resample_well(df, step=STEP, cont_cols=('GR', 'VP', 'DEN'), cat_cols=('LITO_CODE', 'LITO_UPS_FILE')):
+def resample_well(df, step=STEP, cont_cols=('GR', 'VP', 'VS', 'DEN'), cat_cols=('LITO_CODE', 'LITO_UPS_FILE')):
     """
     Put a well on a regular grid of multiples of `step` (0.1524 m).
 
@@ -1157,6 +1176,132 @@ def fig_lito_proportions(prop, palette, title='Lithology proportion per well (ro
     ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
     ax.invert_yaxis()
     plt.tight_layout()
+    return fig
+
+
+# ==============================================================================
+# 7. VS from VP (linear regression) and dynamic elastic properties
+# ==============================================================================
+# Castagna et al. (1985) mudrock line, used only when no well has measured VS.
+VS_CASTAGNA = {'slope': 0.8621, 'intercept': -1172.4}     # VS = 0.8621 VP - 1172.4 (m/s)
+
+
+def _linfit(x, y):
+    a, b = np.polyfit(x, y, 1)
+    pred = a * x + b
+    ss_res = float(np.sum((y - pred) ** 2))
+    ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+    return {'slope': float(a), 'intercept': float(b), 'n': int(len(x)),
+            'R2': 1 - ss_res / ss_tot if ss_tot > 0 else np.nan,
+            'MAE': float(np.mean(np.abs(pred - y))), 'RMSE': float(np.sqrt(ss_res / len(x)))}
+
+
+def fit_vs_vp(df, by_litho=True, min_samples=200):
+    """
+    Linear regression VS = slope * VP + intercept on rows with both VP and VS.
+    Returns {'GLOBAL': eq, '<LITHO>': eq, ...}; a lithology gets its own equation
+    only with >= min_samples points (otherwise the global one is used).
+    Without any measured VS returns {'GLOBAL': Castagna mudrock line}.
+    """
+    d = df.dropna(subset=['VP', 'VS'])
+    if len(d) < max(10, min(min_samples, 50)):
+        warnings.warn(f"Only {len(d)} samples with VP + VS -> Castagna mudrock line used for VS "
+                      f"(not calibrated for evaporites!).")
+        return {'GLOBAL': {**VS_CASTAGNA, 'n': 0, 'R2': np.nan, 'MAE': np.nan, 'RMSE': np.nan,
+                           'source': 'Castagna (1985) mudrock line'}}
+    eqs = {'GLOBAL': {**_linfit(d['VP'].to_numpy(float), d['VS'].to_numpy(float)),
+                      'source': 'fit, all lithologies'}}
+    if by_litho and 'LITO_UPSCALED' in d:
+        for l, g in d.groupby('LITO_UPSCALED'):
+            if len(g) >= min_samples:
+                eqs[l] = {**_linfit(g['VP'].to_numpy(float), g['VS'].to_numpy(float)),
+                          'source': f'fit, {l}'}
+    return eqs
+
+
+def predict_vs(df, eqs):
+    """VS from VP with the equation of each row's lithology (global if not fitted)."""
+    vs = pd.Series(np.nan, index=df.index)
+    lit = df['LITO_UPSCALED'] if 'LITO_UPSCALED' in df else pd.Series(np.nan, index=df.index)
+    for l in pd.unique(lit.fillna('__none__')):
+        m = (lit.fillna('__none__') == l).to_numpy()
+        eq = eqs.get(l, eqs['GLOBAL'])
+        vs.loc[m] = (eq['slope'] * df.loc[m, 'VP'] + eq['intercept']).to_numpy(float)
+    return vs.where(vs > 0)
+
+
+def elastic_properties(vp, vs, den):
+    """
+    Dynamic elastic properties from VP, VS (m/s) and density (g/cc):
+      AI   acoustic impedance  = rho*VP          (m/s * g/cc)
+      G    shear modulus       = rho*VS^2        (GPa)
+      PR   Poisson's ratio     = (VP^2 - 2VS^2) / (2(VP^2 - VS^2))
+      E    Young's modulus     = 2G(1 + PR)      (GPa)
+    Returns a DataFrame. Rows with VS >= VP/sqrt(2) give PR < 0 and are kept (flag them
+    if needed); rows with VS >= VP are set to NaN (non-physical).
+    """
+    vp = pd.Series(vp, dtype=float)
+    vs = pd.Series(vs, dtype=float).where(lambda s: s < vp)
+    rho = pd.Series(den, dtype=float) * 1000.0                 # kg/m3
+    g = rho * vs ** 2 / 1e9
+    pr = (vp ** 2 - 2 * vs ** 2) / (2 * (vp ** 2 - vs ** 2))
+    return pd.DataFrame({'AI': pd.Series(den, dtype=float) * vp, 'SHEAR_MOD': g,
+                         'POISSON': pr, 'YOUNG_MOD': 2 * g * (1 + pr), 'VPVS': vp / vs})
+
+
+def plot_curve_tracks(wdf, title, tracks, lito_alpha=0.25, markers=None):
+    """
+    Generic depth plot: lithology column + one track per entry of `tracks`:
+      (label, [(column, colour, legend name), ...], xlim or None)
+    Lithology shaded behind every track.
+    """
+    w, step = _gap_aware(wdf)
+    blocks = _lito_blocks(wdf, step)
+    used = []
+    for _, _, lit in blocks:
+        if lit not in used:
+            used.append(lit)
+    widths = [0.45] + [1.0] * len(tracks)
+    fig, axes = plt.subplots(1, len(widths), figsize=(0.9 + 1.9 * sum(widths), 10.5), sharey=True,
+                             gridspec_kw={'width_ratios': widths})
+    fig.suptitle(title, fontsize=13, fontweight='bold', y=0.985)
+    for i, ax in enumerate(axes):
+        for z1, z2, lit in blocks:
+            ax.axhspan(z1, z2, color=UPSCALE_COLORS.get(lit, 'white'), alpha=1.0 if i == 0 else lito_alpha,
+                       lw=0, zorder=0)
+        if i == 0:
+            ax.set_xticks([])
+            ax.set_xlabel('LITHO', fontweight='bold', fontsize=9)
+        else:
+            label, curves, xlim = tracks[i - 1]
+            for k, (col, colr, name) in enumerate(curves):
+                if col in w and w[col].notna().any():
+                    ax.plot(w[col], w['MD'], color=colr, lw=0.7 if k == 0 else 0.9, zorder=5 + k, label=name)
+            if xlim:
+                ax.set_xlim(xlim)
+            ax.set_xlabel(label, color=curves[-1][1], fontweight='bold', fontsize=9)
+            if len(curves) > 1 and ax.get_legend_handles_labels()[0]:
+                ax.legend(fontsize=6, loc='lower right', framealpha=0.85)
+            ax.xaxis.set_major_locator(mpl_ticker.MaxNLocator(4))
+            ax.grid(True, ls=':', alpha=0.5, zorder=1)
+        ax.xaxis.set_label_position('top')
+        ax.xaxis.tick_top()
+        ax.tick_params(labelsize=8)
+    if markers:
+        for name, d in markers.items():
+            if d is not None:
+                for ax in axes:
+                    ax.axhline(d, color='k', ls='--', lw=1, zorder=10)
+                axes[-1].text(axes[-1].get_xlim()[1], d, f" {name}", va='center', fontsize=8,
+                              fontweight='bold')
+    axes[0].set_ylabel('MD (m)')
+    axes[0].set_ylim(wdf['MD'].max() + 5, wdf['MD'].min() - 5)
+    handles = [mpatches.Patch(color=UPSCALE_COLORS.get(l, 'white'), label=l)
+               for l in LITO_CATEGORIES if l in used]
+    if handles:
+        fig.legend(handles=handles, loc='lower center', ncol=min(len(handles), 8), fontsize=8,
+                   bbox_to_anchor=(0.5, 0.0))
+    plt.subplots_adjust(wspace=0.12, bottom=0.06, top=0.9)
     return fig
 
 

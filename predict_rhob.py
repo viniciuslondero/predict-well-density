@@ -11,6 +11,9 @@ For each new well:
   * flags samples outside the training range or with an unseen lithology
   * DEN_MERGED = measured DEN where it exists, prediction elsewhere
   * where some measured DEN exists -> blind-test statistics and plots
+  * VS from VP by linear regression where VS is missing (VS_MERGED), then the
+    dynamic elastic properties from VP, VS_MERGED and DEN_MERGED: acoustic
+    impedance, shear modulus, Young's modulus and Poisson's ratio
   * exports one LAS per well + a CSV with everything
 
 Run in Spyder with F5 or cell by cell. Needs rhob_common.py in the same folder.
@@ -39,6 +42,12 @@ SALT_MARKERS = {
 #             (if no new well has measured DEN: best LOWO model of the training)
 #   or a fixed name: 'XGBOOST', 'XGB_NO_LITHO', 'LINREG_LITHO', 'MINERAL_MIX', 'GARDNER'
 MERGE_MODEL = 'auto'
+
+# VS from VP (linear regression VS = a*VP + b, fitted on the samples with measured VS)
+VS_BY_LITHO = True          # one equation per lithology (global equation where too few points)
+VS_MIN_SAMPLES = 200        # min samples with VP + VS for a lithology to get its own equation
+VS_VALID_RANGE = (800, 4500)  # m/s; measured VS outside is discarded
+# Without any measured VS the Castagna mudrock line is used (not calibrated for evaporites)
 
 SHOW_FIGS = True
 SAVE_FIGS = True
@@ -402,6 +411,79 @@ print(f"\nDEN_MERGED = measured DEN + {merge_model} where DEN is missing  [{merg
 
 
 # %% ===========================================================================
+# 3b. VS from VP (linear regression) + dynamic elastic properties
+# ==============================================================================
+#   VS_MERGED = measured VS where it exists, VS = a*VP + b elsewhere
+#   AI = DEN*VP, G = DEN*VS^2, PR = (VP^2-2VS^2)/(2(VP^2-VS^2)), E = 2G(1+PR)
+#   computed with VP, VS_MERGED and DEN_MERGED (dynamic moduli)
+def clean_vs(df):
+    if 'VS' not in df:
+        df['VS'] = np.nan
+    df['VS'] = df['VS'].where(df['VS'].between(*VS_VALID_RANGE))
+    return df
+
+
+pdata = clean_vs(pdata)
+VS_EQ = rc.fit_vs_vp(pdata, by_litho=VS_BY_LITHO, min_samples=VS_MIN_SAMPLES)
+vs_eq_table = pd.DataFrame(VS_EQ).T
+vs_eq_table.index.name = 'LITHOLOGY'
+rc.show_table(vs_eq_table, "VS = slope * VP + intercept (m/s)", "{:.4f}")
+
+
+def add_vs_elastic(df):
+    """VS_PRED / VS_MERGED / VS_SOURCE and elastic properties (needs VP, VS, DEN_MERGED)."""
+    df = clean_vs(df)
+    df['VS_PRED'] = rc.predict_vs(df, VS_EQ)
+    df['VS_MERGED'] = df['VS'].combine_first(df['VS_PRED'])
+    df['VS_SOURCE'] = np.where(df['VS'].notna(), 1, np.where(df['VS_MERGED'].notna(), 2, np.nan))
+    el = rc.elastic_properties(df['VP'], df['VS_MERGED'], df['DEN_MERGED'])
+    for c in el.columns:
+        df[c] = el[c].to_numpy()
+    return df
+
+
+pdata = add_vs_elastic(pdata)
+ELASTIC = ['AI', 'SHEAR_MOD', 'YOUNG_MOD', 'POISSON', 'VPVS']
+n_vs = int(pdata['VS'].notna().sum())
+print(f"VS measured in {n_vs} of {len(pdata)} samples; VS_PRED fills the remaining "
+      f"{int((pdata['VS_SOURCE'] == 2).sum())}.")
+
+vs_tables = {'VS_regression': vs_eq_table}
+if n_vs >= 3:
+    # fit check where VS was measured (same data as the fit -> not a blind test)
+    vs_check = pd.DataFrame({w: rc.regression_metrics(g['VS'], g['VS_PRED'])
+                             for w, g in pdata.dropna(subset=['VS', 'VS_PRED']).groupby('WELL')
+                             if len(g) >= 3}).T
+    rc.show_table(vs_check, "VS_PRED vs measured VS per well (in-sample fit check, m/s)", "{:.3f}")
+    vs_tables['VS_fit_check_per_well'] = vs_check
+
+    d = pdata.dropna(subset=['VP', 'VS'])
+    lit_vs = [c for c in CATEGORIES if c in d['LITO_UPSCALED'].unique()]
+    fig, ax = plt.subplots(figsize=(8.5, 7))
+    sns.scatterplot(data=rc.plot_order(d.groupby('LITO_UPSCALED').head(PAIRPLOT_MAX_PER_LITHO)),
+                    x='VP', y='VS', hue='LITO_UPSCALED', hue_order=lit_vs, palette=rc.UPSCALE_COLORS,
+                    s=POINT_SIZE, alpha=0.5, edgecolor=None, ax=ax)
+    vv = np.linspace(d['VP'].quantile(.001), d['VP'].quantile(.999), 100)
+    for l, eq in VS_EQ.items():
+        colr = 'k' if l == 'GLOBAL' else rc.UPSCALE_COLORS.get(l, 'grey')
+        ax.plot(vv, eq['slope'] * vv + eq['intercept'], color=colr, lw=2 if l == 'GLOBAL' else 1.5,
+                ls='--' if l == 'GLOBAL' else '-',
+                label=f"{l}: VS = {eq['slope']:.3f} VP {eq['intercept']:+.0f} (R² {eq['R2']:.2f})")
+    ax.set_xlabel('VP (m/s)'); ax.set_ylabel('VS (m/s)')
+    ax.set_title('VS vs VP - linear regression used to fill VS', fontweight='bold')
+    ax.legend(fontsize=7, loc='upper left', markerscale=2)
+    plt.tight_layout()
+    fin(fig, "vs_vp_regression")
+else:
+    print("No measured VS -> VS_PRED from the Castagna mudrock line (check before use!).")
+
+elastic_stats = pdata.groupby('LITO_UPSCALED')[['VS_MERGED'] + ELASTIC].describe(
+    percentiles=[.1, .5, .9]).T
+rc.show_table(elastic_stats, "Elastic properties per lithology", "{:.3f}")
+vs_tables['elastic_stats_per_lithology'] = elastic_stats
+
+
+# %% ===========================================================================
 # 4. Plots per well
 # ==============================================================================
 # One track per model (measured DEN in black + the model), lithology shaded behind
@@ -421,7 +503,7 @@ def full_well(w, wd):
     if g is None:
         return wd
     g = g[~g['MD'].round(4).isin(wd['MD'].round(4))]
-    g = g[g[['GR', 'VP', 'DEN', 'LITO_CODE']].notna().any(axis=1)].copy()
+    g = g[g[['GR', 'VP', 'VS', 'DEN', 'LITO_CODE']].notna().any(axis=1)].copy()
     if g.empty:
         return wd
     g['GR_RAW'] = g['GR']
@@ -430,6 +512,7 @@ def full_well(w, wd):
     g['LITO_UPS_CODE'] = g['LITO_UPSCALED'].map(lito_code)
     g['DEN_MERGED'] = g['DEN']                                   # measured DEN only
     g['DEN_SOURCE'] = np.where(g['DEN'].notna(), 1, np.nan)
+    g = add_vs_elastic(g)                                        # elastic only where DEN measured
     return pd.concat([wd, g], ignore_index=True).sort_values('MD').reset_index(drop=True)
 
 
@@ -448,6 +531,20 @@ if PLOT_PER_WELL:
                     [MINERAL_COLORS.get(m, 'k') for m in MINERAL_NAMES], 'Mineral fractions') if MM else None),
             markers={'Salt top': mk.get('top'), 'Salt base': mk.get('base')})
         fin(fig, f"tracks_{w}")
+
+        # VS + elastic properties
+        fig = rc.plot_curve_tracks(
+            full_well(w, wd), f"{w} - VS and dynamic elastic properties", lito_alpha=LITO_ALPHA,
+            tracks=[('VP (m/s)', [('VP', 'blue', 'VP')], rc.LOG_RANGES['VP']),
+                    ('VS (m/s)', [('VS', 'black', 'measured'), ('VS_PRED', 'purple', 'from VP')],
+                     rc.LOG_RANGES['VS']),
+                    ('DEN_MERGED (g/cc)', [('DEN_MERGED', '#000080', 'DEN_MERGED')], rc.LOG_RANGES['DEN']),
+                    ('AI (m/s·g/cc)', [('AI', '#D55E00', 'AI')], None),
+                    ('Shear mod. (GPa)', [('SHEAR_MOD', '#009E73', 'G')], None),
+                    ("Young's mod. (GPa)", [('YOUNG_MOD', '#0072B2', 'E')], None),
+                    ("Poisson's ratio", [('POISSON', '#CC79A7', 'PR')], (0, 0.5))],
+            markers={'Salt top': mk.get('top'), 'Salt base': mk.get('base')})
+        fin(fig, f"elastic_{w}")
 
 # Distribution of predicted DEN per lithology vs training mean
 fig, ax = plt.subplots(figsize=(11, 5))
@@ -481,6 +578,15 @@ las_curves = {
     'MIX_MISFIT': ('MIXMISFIT', '', 'Mineral mixing misfit (weighted, 0 = exact)'),
     'DEN_MERGED': ('DENMERGED', 'g/cc', f'Measured DEN, {merge_model} where missing'),
     'DEN_SOURCE': ('DENSRC', '', f'1=measured 2={merge_model}'),
+    'VS': ('VS', 'm/s', 'Measured S-wave velocity'),
+    'VS_PRED': ('VSPRED', 'm/s', 'VS from VP (linear regression)'),
+    'VS_MERGED': ('VSMERGED', 'm/s', 'Measured VS, VS_PRED where missing'),
+    'VS_SOURCE': ('VSSRC', '', '1=measured 2=from VP'),
+    'AI': ('AI', 'm/s*g/cc', 'Acoustic impedance DENMERGED*VP'),
+    'SHEAR_MOD': ('GMOD', 'GPa', 'Dynamic shear modulus DENMERGED*VSMERGED^2'),
+    'YOUNG_MOD': ('EMOD', 'GPa', "Dynamic Young's modulus 2G(1+PR)"),
+    'POISSON': ('PR', '', "Dynamic Poisson's ratio from VP, VSMERGED"),
+    'VPVS': ('VPVS', '', 'VP / VSMERGED'),
     'PRED_FLAG': ('PREDFLAG', '', '0=ok 1=out of training range 2=unseen lithology'),
     'LITO_CODE': ('LITO', '', 'Original lithology code'),
     'LITO_UPS_CODE': ('LITOUPS', '', 'Upscaled lithology code (see ~Other)'),
@@ -488,6 +594,9 @@ las_curves = {
 other = ("LITOUPS codes: " + ", ".join(f"{v}={k}" for k, v in lito_code.items()) +
          f"\nModels trained on {', '.join(meta['training_wells'])}; XGBoost inputs: {', '.join(FEATURE_COLS)}"
          f"\nDENMERGED gaps filled with {merge_model} ({merge_reason})"
+         f"\nVSMERGED gaps filled with VS = a*VP + b (" +
+         "; ".join(f"{l}: {e['slope']:.4f}*VP{e['intercept']:+.1f}" for l, e in VS_EQ.items()) + ")"
+         f"\nAI, GMOD, EMOD, PR, VPVS computed from VP, VSMERGED, DENMERGED (dynamic)"
          f"\nSampling 0.1524 m, continuous. Depths without LITO+VP+GR have no prediction: "
          f"their input logs (GR, VP, DEN, LITO) are kept, DENMERGED = measured DEN if any, "
          f"everything else -9999.25.")
@@ -503,7 +612,8 @@ for w, wd in pdata.groupby('WELL'):
 pdata.to_csv(OUT_DIR / "all_wells_DEN_predicted.csv", index=False)
 rc.save_tables({'summary': summary, 'log_stats': stats_new, 'preparation': prep_report,
                 'GR_normalisation': gr_shift_table,
-                **({'litho_proportion_%': lito_prop_new} if PLOT_EXPLORATION else {}), **blind_tables},
+                **({'litho_proportion_%': lito_prop_new} if PLOT_EXPLORATION else {}), **blind_tables,
+                **vs_tables},
                OUT_DIR / "prediction_summary.xlsx")
 print("\nDone.")
 if SHOW_FIGS:
