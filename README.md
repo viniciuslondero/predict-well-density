@@ -38,13 +38,18 @@ properties (acoustic impedance, shear modulus, Young's modulus and Poisson's rat
      log values from the Schlumberger *Log Interpretation Charts*. The mineral densities are fitted
      on the training wells, each within ±`MINERAL_MAX_CHANGE` g/cc of its chart value. This is the
      usual linear-equation approach to mineral composition from logs (Doveton, 1994).
-4. Trains the final XGBoost on all training wells and saves it with its metadata.
+4. Refits every model on all training wells and saves them: the two XGBoost models as model files,
+   the other models as parameters in the metadata file (`rhob_model_meta.json`), together with the
+   LOWO scores. The model used for the final density is chosen in the prediction step.
 
 ### Prediction (`predict_rhob.py`)
 
 1. Applies the same preparation used in training to each new well.
 2. Predicts DEN and flags samples outside the training range or with an unseen lithology.
-3. Builds `DEN_MERGED`: measured DEN where it exists, predicted DEN elsewhere.
+3. Builds `DEN_MERGED`: measured DEN where it exists, predicted DEN elsewhere. With
+   `MERGE_MODEL = 'auto'` the prediction comes from the model with the lowest blind-test MAE on the
+   new wells, or from the best LOWO model when no new well has measured DEN. `MERGE_MODEL` can also
+   name a fixed model.
 4. If a well has some measured DEN, computes blind-test statistics and plots.
 5. Fills VS from VP and computes the elastic properties (see below).
 6. Exports one LAS file per well, a CSV with all results, and figures.

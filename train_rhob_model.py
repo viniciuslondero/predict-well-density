@@ -12,7 +12,8 @@ Steps
   4. Histograms per log coloured by lithology + extra correlation plots.
   5. Model comparison with leave-one-well-out (LOWO): XGBoost vs. lithology mean,
      Gardner (VP->DEN) and linear regression per lithology.
-  6. Train the final XGBoost on all wells and save it for predict_rhob.py.
+  6. Refit every model on all wells and save them (XGBoost files + metadata with the
+     other models and the LOWO scores). predict_rhob.py picks the model (MERGE_MODEL).
 
 Run in Spyder with F5, or cell by cell (Ctrl+Enter). Needs rhob_common.py in the
 same folder.  Dependencies (Anaconda Prompt):
