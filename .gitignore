@@ -1,3 +1,4 @@
-# Every top-level folder is local (input data, outputs, caches) except the sample wells
+# Every top-level folder is local (input data, outputs, caches) except the sample wells and docs
 /*/
 !/sample_data/
+!/docs/

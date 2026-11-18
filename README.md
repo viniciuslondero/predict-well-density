@@ -14,6 +14,7 @@ properties (acoustic impedance, shear modulus, Young's modulus and Poisson's rat
 | `predict_rhob.py` | Script 2: applies the saved model to new wells and exports the results |
 | `rhob_common.py` | Shared helpers: LAS reading, resampling, lithology mapping, feature building, VS regression, elastic properties, metrics, plots, LAS export |
 | `make_sample_data.py` | Builds the synthetic test wells in `sample_data/` |
+| `docs/images/` | Example figures shown in this README |
 
 ### Training (`train_rhob_model.py`)
 
@@ -117,7 +118,7 @@ Both scripts can also be run cell by cell in Spyder or VS Code (cells are marked
 ## Data
 
 Your own LAS files and the generated outputs are not versioned. `.gitignore` ignores every top-level
-folder except `sample_data/`, so any data folder you create in the project stays local.
+folder except `sample_data/` and `docs/`, so any data folder you create in the project stays local.
 
 ## Quick test with synthetic data
 
@@ -143,3 +144,37 @@ python predict_rhob.py
 
 Results go to `model_output/` and `predictions/`. To use your own wells, change the input folder, well
 names and markers in `CONFIG`. To rebuild the synthetic wells, run `python make_sample_data.py`.
+
+## Example figures (synthetic data)
+
+These figures come from running both scripts on `sample_data/` with the default `CONFIG`. The wells
+are synthetic, so the figures only show what the workflow produces. Do not read them as a measure of
+performance on real wells.
+
+### Training
+
+Input logs of a training well: lithology, GR, VP and measured DEN inside the salt interval.
+
+![Training well SYN-TRAIN-1](docs/images/train_tracks_SYN-TRAIN-1.png)
+
+Leave-one-well-out comparison of the models: measured vs predicted DEN, coloured by lithology.
+
+![LOWO model comparison](docs/images/train_lowo_model_comparison.png)
+
+### Prediction
+
+`SYN-PRED-2` has measured DEN only in its upper part. The tracks show each model's prediction against
+the measured log (black), the flags, `DEN_MERGED` and the mineral fractions.
+
+![Prediction tracks SYN-PRED-2](docs/images/predict_tracks_SYN-PRED-2.png)
+
+### Results
+
+Blind test on the prediction wells that have measured DEN:
+
+![Blind test crossplot](docs/images/predict_blind_test_crossplot.png)
+
+`SYN-PRED-3` has no density and no shear log. DEN comes from the model, VS from the VP regression,
+and the elastic properties from both:
+
+![Elastic properties SYN-PRED-3](docs/images/predict_elastic_SYN-PRED-3.png)
