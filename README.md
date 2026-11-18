@@ -26,7 +26,18 @@ properties (acoustic impedance, shear modulus, Young's modulus and Poisson's rat
    - Mean density per lithology
    - Gardner relation (VP to DEN)
    - Linear regression per lithology
-   - Mineral mixture model
+   - Mineral mixture model. Evaporites have almost no porosity, so each sample is treated as a mix
+     of up to three minerals. The allowed minerals depend on the lithology (`MINERAL_SETS`): for
+     example halite, anhydrite and carnallite in the halite and anhydrite intervals. The fractions
+     *f*ᵢ come from a bounded weighted least-squares fit of the sonic slowness and the GR:
+
+         DT = Σ fᵢ·DTᵢ     GR = Σ fᵢ·GRᵢ     Σ fᵢ = 1,  0 ≤ fᵢ ≤ 1
+
+     DT mixes linearly as in the Wyllie time-average equation (Wyllie et al., 1956). Density is then
+     `DEN = Σ fᵢ·RHOBᵢ`. The mineral end-members (`MINERALS` in `rhob_common.py`) are approximate
+     log values from the Schlumberger *Log Interpretation Charts*. The mineral densities are fitted
+     on the training wells, each within ±`MINERAL_MAX_CHANGE` g/cc of its chart value. This is the
+     usual linear-equation approach to mineral composition from logs (Doveton, 1994).
 4. Trains the final XGBoost on all training wells and saves it with its metadata.
 
 ### Prediction (`predict_rhob.py`)
@@ -178,3 +189,15 @@ Blind test on the prediction wells that have measured DEN:
 and the elastic properties from both:
 
 ![Elastic properties SYN-PRED-3](docs/images/predict_elastic_SYN-PRED-3.png)
+
+## References
+
+- Castagna, J. P., Batzle, M. L. and Eastwood, R. L. (1985). Relationships between compressional-wave
+  and shear-wave velocities in clastic silicate rocks. *Geophysics*, 50(4), 571–581.
+- Doveton, J. H. (1994). *Geologic Log Analysis Using Computer Methods*. AAPG Computer Applications in
+  Geology 2.
+- Gardner, G. H. F., Gardner, L. W. and Gregory, A. R. (1974). Formation velocity and density: the
+  diagnostic basics for stratigraphic traps. *Geophysics*, 39(6), 770–780.
+- Schlumberger. *Log Interpretation Charts*.
+- Wyllie, M. R. J., Gregory, A. R. and Gardner, L. W. (1956). Elastic wave velocities in heterogeneous
+  and porous media. *Geophysics*, 21(1), 41–70.
