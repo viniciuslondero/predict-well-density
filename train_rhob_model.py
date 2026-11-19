@@ -157,12 +157,13 @@ if not TRAIN_LAS_DIR.exists():
 files = rc.list_las_files(TRAIN_LAS_DIR, TRAIN_WELLS)
 print(f"{len(files)} LAS files found for {len(TRAIN_WELLS)} training wells.")
 
-frames, report = [], []
+frames, report, interval_frames = [], [], []   # interval_frames: every row in the salt interval
 for f in files:
     print(f"Reading {Path(f).name} ...")
     try:
-        d, info = rc.prepare_well(f, SALT_MARKERS, required=['LITO', 'DEN', 'VP', 'GR'],
-                                  valid_ranges=VALID_RANGES, use_file_lithology=USE_FILE_LITHOLOGY)
+        d, info, d_all = rc.prepare_well(f, SALT_MARKERS, required=['LITO', 'DEN', 'VP', 'GR'],
+                                         valid_ranges=VALID_RANGES, use_file_lithology=USE_FILE_LITHOLOGY,
+                                         return_all=True)
     except Exception as e:
         # a training well must not be silently dropped -> stop with a clear message
         raise RuntimeError(f"Could not read training well file '{Path(f).name}': {e}") from e
@@ -172,6 +173,7 @@ for f in files:
         warnings.warn(f"{info['WELL']}: no rows with LITO + DEN + VP + GR - check curve names, "
                       "salt markers and units. This well adds nothing to training.")
     frames.append(d)
+    interval_frames.append(d_all)
     report.append(info)
 
 prep_report = pd.DataFrame(report).set_index('WELL')
@@ -329,6 +331,13 @@ fin(fig, "04d_boxplots_lithology_well")
 # %% Extra 4: lithology proportions per well
 fig = rc.fig_lito_proportions(lito_prop, PAL)
 fin(fig, "04e_lithology_proportions")
+
+# Original lithology codes (21 classes) over the WHOLE salt interval (Ariri + Retiro,
+# SALT_MARKERS top to base), not only the training rows; small classes -> "Others"
+salt_all = pd.concat(interval_frames, ignore_index=True)
+fig = rc.fig_lithology_pie(salt_all['LITO_NAME'], "Lithology in the training wells - Ariri and Retiro formations",
+                           sample_note="whole salt interval")
+fin(fig, "04e2_lithology_codes_pie")
 
 
 # %% Extra 5: depth tracks of the training data

@@ -215,6 +215,14 @@ if PLOT_EXPLORATION:
     fig = rc.fig_lito_proportions(lito_prop_new, PAL, 'New wells - lithology proportion (rows used)')
     fin(fig, "02d_lithology_proportions")
 
+    # Original lithology codes over the WHOLE salt interval (Ariri + Retiro, SALT_MARKERS
+    # top to base) of the prediction wells - same figure as 04e2 in the training script
+    salt_all = pd.concat(all_rows.values(), ignore_index=True)
+    fig = rc.fig_lithology_pie(salt_all['LITO_NAME'],
+                               "Lithology in the prediction wells - Ariri and Retiro formations",
+                               sample_note="whole salt interval")
+    fin(fig, "02e_lithology_codes_pie")
+
 
 # %% ===========================================================================
 # 2. Predict

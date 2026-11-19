@@ -12,6 +12,7 @@ Keep this file in the same folder as the two scripts.
 """
 import io
 import os
+import re
 import warnings
 
 import numpy as np
@@ -19,6 +20,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.ticker as mpl_ticker
+import matplotlib.text as mpl_text
 
 try:
     import lasio
@@ -147,11 +149,45 @@ def fit_window_to_screen(fig):
         window.move(screen.topLeft())
 
 
+# Plain-English names of the 6 lithology classes, used ONLY in figure text.
+# The data, tables and saved model keep the codes (HALITE, K_SALT, ...).
+UPSCALE_LABELS = {
+    'HALITE': 'Halite', 'ANHYDRITE': 'Anhydrite', 'K_SALT': 'Bittern salts',
+    'CARBONATE': 'Carbonate', 'MARL_CLAY': 'Marl / clay', 'OTHER': 'Other',
+    'LITO_UPSCALED': 'Lithology', 'LITO': 'Lithology',
+}
+_LABEL_RE = re.compile('(?<![A-Za-z0-9_])('                     # whole words only
+                       + '|'.join(sorted(UPSCALE_LABELS, key=len, reverse=True))
+                       + ')(?![A-Za-z0-9_])')
+
+
+def _relabel(text):
+    return _LABEL_RE.sub(lambda m: UPSCALE_LABELS[m.group(0)], text)
+
+
+def relabel_lithologies(fig):
+    """Replace the lithology class codes in every text of the figure (tick labels,
+    legends, titles, annotations) with their plain-English names."""
+    fig.canvas.draw()                       # tick labels only exist after a draw
+    for ax in fig.axes:
+        for axis in (ax.xaxis, ax.yaxis):
+            labels = [t.get_text() for t in axis.get_ticklabels()]
+            new = [_relabel(t) for t in labels]
+            if new != labels:
+                axis.set_ticks(axis.get_ticklocs())
+                axis.set_ticklabels(new)
+    for t in fig.findobj(mpl_text.Text):
+        old = t.get_text()
+        if old and _LABEL_RE.search(old):
+            t.set_text(_relabel(old))
+
+
 def finish_fig(fig, name, fig_dir=None, show=True, save=True):
     """Save the figure (PNG) and either open its window without waiting or close it.
 
     Scripts must call plt.show() at their end to keep the windows open.
     """
+    relabel_lithologies(fig)
     if save and fig_dir is not None:
         os.makedirs(fig_dir, exist_ok=True)
         fig.savefig(os.path.join(fig_dir, f"{safe_name(name)}.png"), dpi=150, bbox_inches='tight')
@@ -1176,6 +1212,109 @@ def fig_lito_proportions(prop, palette, title='Lithology proportion per well (ro
     ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
     ax.invert_yaxis()
     plt.tight_layout()
+    return fig
+
+
+# English names for the 21 lithology codes (used in figures)
+LITO_ENGLISH = {
+    'CALCARIO': 'Limestone', 'CALCILUTITO': 'Calcilutite', 'CALCARENITO': 'Calcarenite',
+    'CHERT': 'Chert', 'DOLOMITO': 'Dolomite', 'VULCANICA NAO IDENTIFICADA': 'Unidentified volcanic',
+    'CONGLOMERADO': 'Conglomerate', 'ARENITO': 'Sandstone', 'SILTITO': 'Siltstone',
+    'ARGILITO': 'Claystone', 'FOLHELHO': 'Shale', 'MARGA': 'Marl',
+    'IGNEA INTRUSIVA NAO IDENTIFICADA': 'Unidentified intrusive igneous', 'DIABASIO': 'Diabase',
+    'BASALTO': 'Basalt', 'ANIDRITA': 'Anhydrite', 'SAL POTASSICO': 'Bittern salt (undifferentiated)',
+    'HALITA': 'Halite', 'SILVITA': 'Sylvite', 'CARNALITITA': 'Carnallitite',
+    'TAQUIDRITA': 'Tachyhydrite', 'CODE_NOT_IN_TABLE': 'Code not in table',
+}
+
+
+def lito_english(name):
+    return LITO_ENGLISH.get(name, str(name).title())
+
+
+LITO_CODE_COLORS = LITO_MAP.set_index('LITO')['COR'].to_dict()
+
+
+def fig_lithology_pie(names, title, sample_note='', min_slice=5.0):
+    """Pie of the original lithology codes (LITO_NAME). Slices below `min_slice` %
+    are grouped into "Others", which is expanded as a stacked bar on the right."""
+    from matplotlib.patches import ConnectionPatch
+    n_missing = int(names.isna().sum())
+    pct = names.dropna().value_counts(normalize=True) * 100
+    counts = names.dropna().value_counts()
+    main = pct[pct >= min_slice]
+    if main.empty:
+        main = pct.iloc[:1]
+    rest = pct.drop(main.index)
+    if len(rest) == 1:                       # a single "other" class gets its own slice
+        main, rest = pct, pct.iloc[:0]
+
+    def fmt_pct(p):
+        return '<0.01%' if p < 0.01 else f'{p:.2f}%'
+
+    def color(n):
+        return LITO_CODE_COLORS.get(n, '#DDDDDD')
+
+    fig = plt.figure(figsize=(14, 7.5))
+    fig.text(0.02, 0.965, title, fontsize=17, fontweight='bold', va='top')
+    sub = (f"Share of samples by lithology code ({STEP} m samples, n = {counts.sum():,}"
+           + (f"; {n_missing:,} samples without lithology excluded" if n_missing else '')
+           + (f"; {sample_note}" if sample_note else '') + ')'
+           + ('. "Others" is expanded on the right.' if len(rest) else '.'))
+    fig.text(0.02, 0.915, sub, fontsize=11, color='#5F6B7A', va='top')
+
+    ax_pie = fig.add_axes([0.03, 0.04, 0.5, 0.82])
+    # "Others" first, centred on 0 deg, so it faces the bar on the right
+    vals = ([rest.sum()] if len(rest) else []) + list(main.values)
+    cols = (['#595959'] if len(rest) else []) + [color(n) for n in main.index]
+    labels = ((['Others'] if len(rest) else [])
+              + [lito_english(n) for n in main.index])
+    start = -vals[0] / 100 * 360 / 2 if len(rest) else 90
+    wedges, _ = ax_pie.pie(vals, colors=cols, startangle=start, counterclock=True,
+                           wedgeprops=dict(edgecolor='white', linewidth=1.5))
+    ax_pie.set_aspect('equal')
+    for w, lab, v in zip(wedges, labels, vals):
+        ang = np.deg2rad((w.theta1 + w.theta2) / 2)
+        txt = f"{lab}\n{v:.1f}%"
+        if v >= 25:
+            ax_pie.text(0.55 * np.cos(ang), 0.55 * np.sin(ang), txt, ha='center', va='center',
+                        fontsize=13, fontweight='bold', color='#1F2933')
+        else:
+            ax_pie.annotate(txt, xy=(np.cos(ang), np.sin(ang)),
+                            xytext=(1.15 * np.cos(ang) + 0.05 * np.sign(np.cos(ang)), 1.15 * np.sin(ang)),
+                            ha='left' if np.cos(ang) >= 0 else 'right', va='center', fontsize=11,
+                            fontweight='bold', color='#1F2933', zorder=10,
+                            bbox=dict(boxstyle='round,pad=0.15', fc='white', ec='none'),
+                            arrowprops=dict(arrowstyle='-', color='#9AA5B1', lw=0.8))
+
+    if len(rest):
+        rest = rest.sort_values(ascending=False)          # largest at the bottom
+        ax_bar = fig.add_axes([0.65, 0.1, 0.045, 0.78])
+        bottom = 0.0
+        mids = []
+        for n, v in rest.items():
+            ax_bar.bar(0, v, bottom=bottom, width=1.0, color=color(n), edgecolor='white', lw=1)
+            mids.append(bottom + v / 2)
+            bottom += v
+        ax_bar.set_xlim(-0.5, 0.5)
+        ax_bar.set_ylim(0, bottom)
+        ax_bar.axis('off')
+        # lines from the edges of the "Others" wedge to the top / bottom of the bar
+        w = wedges[0]
+        for theta, y in ((w.theta2, bottom), (w.theta1, 0)):
+            t = np.deg2rad(theta)
+            ax_pie.add_artist(ConnectionPatch(xyA=(np.cos(t), np.sin(t)), coordsA=ax_pie.transData,
+                                              xyB=(-0.5, y), coordsB=ax_bar.transData,
+                                              color='#9AA5B1', lw=1, zorder=1, clip_on=False))
+        # one label per class, evenly spaced, with a leader line to its segment
+        for i, ((n, v), mid) in enumerate(zip(rest.items(), mids)):
+            y_lab = bottom * (i + 0.5) / len(rest)                 # largest at the bottom
+            ax_bar.plot([0.5, 0.9, 1.3, 1.45], [mid, mid, y_lab, y_lab], color='#9AA5B1', lw=0.8,
+                        clip_on=False)
+            ax_bar.scatter([1.5], [y_lab], s=60, color=color(n), edgecolor='#9AA5B1', lw=0.5,
+                           clip_on=False, zorder=5)
+            ax_bar.text(1.9, y_lab, f"{lito_english(n)}  {fmt_pct(v)}  (n={counts[n]:,})",
+                        va='center', fontsize=11, color='#1F2933', clip_on=False)
     return fig
 
 
