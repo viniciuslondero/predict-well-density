@@ -331,10 +331,10 @@ fin(fig, "04d_boxplots_lithology_well")
 fig = rc.fig_lito_proportions(lito_prop, PAL)
 fin(fig, "04e_lithology_proportions")
 
-# Original lithology codes (21 classes) over the WHOLE salt interval (Ariri,
-# SALT_MARKERS top to base), not only the training rows; small classes -> "Others"
+# Original lithology codes (21 classes) over the WHOLE salt interval
+# (SALT_MARKERS top to base), not only the training rows; small classes -> "Others"
 salt_all = pd.concat(interval_frames, ignore_index=True)
-fig = rc.fig_lithology_pie(salt_all['LITO_NAME'], "Lithology in the training wells - Ariri Formation",
+fig = rc.fig_lithology_pie(salt_all['LITO_NAME'], "Lithology in the training wells - salt interval",
                            sample_note="whole salt interval")
 fin(fig, "04e2_lithology_codes_pie")
 
