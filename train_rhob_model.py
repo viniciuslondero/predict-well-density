@@ -252,9 +252,8 @@ interval = data.groupby('WELL').agg(MD_top=('MD', 'min'), MD_base=('MD', 'max'),
 interval['thickness_with_data_m'] = interval['rows'] * rc.STEP
 rc.show_table(interval, "Interval used per well", "{:.1f}")
 
-# Lithology proportions per well (%)
-lito_prop = pd.crosstab(data['WELL'], data['LITO_UPSCALED'], normalize='index')[lito_present] * 100
-lito_prop.loc['ALL WELLS'] = data['LITO_UPSCALED'].value_counts(normalize=True)[lito_present] * 100
+# Lithology proportions per well (%), wells sorted by salt thickness (thickest first)
+lito_prop = rc.lithology_proportions(data, lito_present)
 rc.show_table(lito_prop, "Lithology proportion per well (%)", "{:.1f}")
 
 # DEN / VP / GR mean and std per well and lithology
@@ -332,10 +331,10 @@ fin(fig, "04d_boxplots_lithology_well")
 fig = rc.fig_lito_proportions(lito_prop, PAL)
 fin(fig, "04e_lithology_proportions")
 
-# Original lithology codes (21 classes) over the WHOLE salt interval (Ariri + Retiro,
+# Original lithology codes (21 classes) over the WHOLE salt interval (Ariri,
 # SALT_MARKERS top to base), not only the training rows; small classes -> "Others"
 salt_all = pd.concat(interval_frames, ignore_index=True)
-fig = rc.fig_lithology_pie(salt_all['LITO_NAME'], "Lithology in the training wells - Ariri and Retiro formations",
+fig = rc.fig_lithology_pie(salt_all['LITO_NAME'], "Lithology in the training wells - Ariri Formation",
                            sample_note="whole salt interval")
 fin(fig, "04e2_lithology_codes_pie")
 
